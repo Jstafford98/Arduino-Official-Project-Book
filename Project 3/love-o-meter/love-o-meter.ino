@@ -16,11 +16,10 @@
 const int LED_PIN_2 = 2;
 const int LED_PIN_3 = 3;
 const int LED_PIN_4 = 4;
+const int SWITCH_PIN = 5 ;
 const int TMP_PIN_A0 = A0;
 
-const float BASELINE_TEMP = 20.0;  // Ambient room temperature
-
-// Deltas above BASELINE_TEMP used for triggering LEDs
+// Deltas above baselineTemp used for triggering LEDs
 const int LOW_TEMP_DELTA = 2;
 const int MEDI_TEMP_DELTA = 4;
 const int HIGH_TEMP_DELTA = 6;
@@ -35,9 +34,21 @@ const int HIGH_TEMP_DELTA = 6;
 */
 const int SMOOTHING = 500;
 
+/*
+  Configurable params for calibrating the TMP36 Sensor.
+  nCalibrationSamples is the total temperature samples to take
+  calibrationSampleRate is the time, in milliseconds, to wait between samples
+*/
+const int nCalibrationSamples = 10;
+const int calibrationSampleRate = 100;
+
+int switchState;
 int sensorValue;
 float sensorVoltage;
 float temperatureCelcius;
+
+/* Our calibrated sensor temperature will be stored here */
+float baselineTemp;
 
 float calculateVoltage(int sensorValue) {
   /*
@@ -58,6 +69,7 @@ void displayToSerial(int sensorValue, float sensorVoltage, float temperatureCelc
   /*
     Some basic logging to the Serial monitor 
   */
+
   Serial.print("Sensor Value: ");
   Serial.print(sensorValue);
   Serial.print(", Volts: ");
@@ -77,6 +89,60 @@ void setLedSequence(int pin2, int pin3, int pin4) {
   digitalWrite(LED_PIN_4, pin4);
 }
 
+void calibrateSensor(int nSamples, int sampleDelay) {
+  /*
+    Calibrate our TMP36 Sensor to the ambient room temperature by taking the mean of
+    our samples and setting that as our baseline. 
+  */
+
+  setLedSequence(HIGH, HIGH, HIGH);  // Turn on all LEDs to show calibration in process
+
+  int sampleMean;
+  float sampleTemp;
+  float sampleVoltage;
+  int samples[nSamples];
+
+  Serial.print("\n-------------------- Calibration Values --------------------\n");
+  Serial.print("Calibration Samples: [");
+
+  for (int i = 0; i < nSamples; i++) {
+    // Get nSamples of ambient temperature
+    samples[i] = analogRead(TMP_PIN_A0);
+
+    Serial.print(samples[i]);
+
+    if (i != (nSamples - 1))
+      Serial.print(", ");
+
+    delay(sampleDelay);
+  }
+  Serial.print("]\n");
+
+  // Calculate the mean ambient temperature (sensor value)
+  sampleMean = 0;
+  for (int i = 0; i < nSamples; i++)
+    sampleMean += samples[i];
+  sampleMean = sampleMean / nSamples;
+
+  // Convert our mean sensor value to an actual temperature
+  sampleVoltage = calculateVoltage(sampleMean);
+  sampleTemp = calculateTemperatureCelcius(sampleVoltage);
+  baselineTemp = sampleTemp;
+
+  // Log the calibration data
+  Serial.print("Mean Sensor Value: ");
+  Serial.print(sampleMean);
+  Serial.print(", Volts: ");
+  Serial.print(sampleVoltage);
+  Serial.print("\n");
+  Serial.print("Calibrated Baseline Temperature in Degrees C: ");
+  Serial.print(sampleTemp);
+  Serial.print("\n");
+  Serial.print("-------------------- End of Calibration --------------------\n");
+
+  setLedSequence(LOW, LOW, LOW);  // turn off LEDs once calibration is complete
+}
+
 void setup() {
 
   Serial.begin(9600);  // Opens our serial port
@@ -85,11 +151,27 @@ void setup() {
   pinMode(LED_PIN_2, OUTPUT);
   pinMode(LED_PIN_3, OUTPUT);
   pinMode(LED_PIN_4, OUTPUT);
+
+  /* 
+    Configure a switch as an input, this switch is used to 
+    recalibrate a baseline temperature on command.
+  */
+  pinMode(SWITCH_PIN, INPUT);
+
+  //Calibrate sensor to get a baseline
+  calibrateSensor(nCalibrationSamples, calibrationSampleRate);
 }
 
 void loop() {
 
   delay(SMOOTHING);  // Delay helps us ignore some ugly fluctuation in LEDs
+
+  /* Recalibrate our temperature if the user presses the calibration button */
+  switchState = digitalRead(SWITCH_PIN);
+  if (switchState == HIGH){
+    setLedSequence(LOW, LOW, LOW);
+    calibrateSensor(nCalibrationSamples, calibrationSampleRate);
+  }
 
   sensorValue = analogRead(TMP_PIN_A0);  // Gets a value of 0-1023 from our TMP36 Sensor
 
@@ -100,17 +182,17 @@ void loop() {
 
   /* 
     Here we need to determine what LEDs should be on in our display. 
-    If the read temp is >= BASELINE_TEMP + HIGH_TEMP_DELTA we should
+    If the read temp is >= baselineTemp + HIGH_TEMP_DELTA we should
     light all three, if MEDI_TEMP_DELTA, first two, if LOW_TEMP_DELTA,
     only one. Otherwise, turn them all off.
   */
-  if (temperatureCelcius >= BASELINE_TEMP + HIGH_TEMP_DELTA)
+  if (temperatureCelcius >= baselineTemp + HIGH_TEMP_DELTA)
     return setLedSequence(HIGH, HIGH, HIGH);
 
-  if (temperatureCelcius >= BASELINE_TEMP + MEDI_TEMP_DELTA)
+  if (temperatureCelcius >= baselineTemp + MEDI_TEMP_DELTA)
     return setLedSequence(HIGH, HIGH, LOW);
 
-  if (temperatureCelcius >= BASELINE_TEMP + LOW_TEMP_DELTA)
+  if (temperatureCelcius >= baselineTemp + LOW_TEMP_DELTA)
     return setLedSequence(HIGH, LOW, LOW);
 
   return setLedSequence(LOW, LOW, LOW);
