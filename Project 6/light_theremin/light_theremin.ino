@@ -16,7 +16,7 @@ const int PIEZO_PIN = 8 ; // Digital pin to write our Piezo tone to
   Photoresistor value of 0 to, and PITCH_MAX to a value of 1023. These are effectively
   the lowest and highest pitches the Piezo will play.
 */
-const int PITCH_MIN = 50 ;
+const int PITCH_MIN = 50 ; 
 const int PITCH_MAX = 4000 ;
 
 // Time the Piezo will play the tone
